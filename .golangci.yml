@@ -1,0 +1,10 @@
+version: "2"
+linters:
+  enable: [errorlint, gocritic, misspell, unconvert, bodyclose]
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (net.Listener).Close
+        - (*github.com/gorilla/websocket.Conn).Close

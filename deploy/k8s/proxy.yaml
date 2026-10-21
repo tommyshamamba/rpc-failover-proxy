@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rpc-failover-proxy
+data:
+  # Replace with your upstreams: name=http_url|ws_url, comma separated.
+  RFP_UPSTREAMS: "primary=http://upstream-primary:9000|ws://upstream-primary:9000,backup=http://upstream-backup:9000|ws://upstream-backup:9000"
+  RFP_LOG_LEVEL: info
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rpc-failover-proxy
+  labels: { app: rpc-failover-proxy }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: rpc-failover-proxy }
+  template:
+    metadata:
+      labels: { app: rpc-failover-proxy }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: proxy
+          image: ghcr.io/tommyshamamba/rpc-failover-proxy:latest
+          args: ["-shutdown-grace=20s"]
+          envFrom: [{ configMapRef: { name: rpc-failover-proxy } }]
+          ports:
+            - { name: rpc, containerPort: 8545 }
+            - { name: admin, containerPort: 9090 }
+          livenessProbe:
+            httpGet: { path: /healthz, port: admin }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /readyz, port: admin }
+            periodSeconds: 5
+            failureThreshold: 2
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rpc-failover-proxy
+spec:
+  selector: { app: rpc-failover-proxy }
+  ports:
+    - { name: rpc, port: 8545, targetPort: rpc }
+    - { name: admin, port: 9090, targetPort: admin }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rpc-failover-proxy
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: rpc-failover-proxy }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rpc-failover-proxy
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: rpc-failover-proxy }

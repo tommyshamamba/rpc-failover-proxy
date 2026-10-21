@@ -1,0 +1,24 @@
+# Demo: three fake upstreams behind the proxy.
+#   docker compose up --build
+#   curl -s localhost:8545 -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
+#   curl -s "localhost:9001/admin/fail?on=1"   # break upstream a, then repeat the first curl
+#   curl -s localhost:9090/metrics | grep rfp_
+services:
+  upstream-a: &fake
+    build: { context: ., args: { TARGET: fake-upstream } }
+    command: ["-addr=:9000", "-name=a", "-tick=1s"]
+    ports: ["9001:9000"]
+  upstream-b:
+    <<: *fake
+    command: ["-addr=:9000", "-name=b", "-tick=1s", "-delay=5ms"]
+    ports: ["9002:9000"]
+  upstream-c:
+    <<: *fake
+    command: ["-addr=:9000", "-name=c", "-tick=1s", "-delay=20ms"]
+    ports: ["9003:9000"]
+  proxy:
+    build: .
+    environment:
+      RFP_UPSTREAMS: "a=http://upstream-a:9000|ws://upstream-a:9000,b=http://upstream-b:9000|ws://upstream-b:9000,c=http://upstream-c:9000|ws://upstream-c:9000"
+    ports: ["8545:8545", "9090:9090"]
+    depends_on: [upstream-a, upstream-b, upstream-c]
