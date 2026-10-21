@@ -2,6 +2,19 @@
 
 [![ci](https://github.com/tommyshamamba/rpc-failover-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/tommyshamamba/rpc-failover-proxy/actions/workflows/ci.yml)
 
+## Demo
+
+![Terminal demo: 3 fake upstreams under steady load; alpha is killed, then bravo is frozen, and traffic fails over with zero client errors](docs/demo/demo.gif)
+
+Recorded live with the repo's own `fake-upstream` servers (alpha/bravo/charlie with 1/3/6 ms artificial latency), 4 load clients and a 500 ms probe interval. Numbers below come from that run: 2,701 requests, 0 client-visible errors.
+
+| Requests per upstream over time | Per-request latency |
+|---|---|
+| ![traffic per upstream](docs/demo/rpc-traffic.png) | ![latency](docs/demo/rpc-latency.png) |
+
+- **Crash (`kill -9 alpha`):** the next request was served by bravo, with no errors and no latency spike (max ≈7 ms in that second).
+- **Silent hang (`SIGSTOP bravo`):** the 4 requests already in flight waited out the 10 s per-attempt timeout, then retried on charlie and succeeded (`rfp_retries_total 4`). New requests went straight to charlie once the probe marked bravo unhealthy.
+
 A small Go proxy and library that puts several interchangeable upstreams behind one endpoint, for both HTTP and WebSocket. It probes health, ranks upstreams by smoothed latency, trips a circuit breaker on failures and fails over automatically. For WebSocket JSON-RPC streams, it also replays subscriptions on the new upstream, so clients keep their original subscription IDs.
 
 It works with any JSON-over-HTTP or JSON-RPC-over-WebSocket upstream: internal APIs, pub/sub gateways or third-party providers. One example is a pool of blockchain node RPC providers. That's where the design came from, and the defaults use `eth_subscribe` and `web3_clientVersion`, which are configurable.
